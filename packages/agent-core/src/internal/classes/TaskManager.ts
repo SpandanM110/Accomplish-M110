@@ -104,7 +104,8 @@ export class TaskManager {
   }
 
   async startTask(taskId: string, config: TaskConfig, callbacks: TaskCallbacks): Promise<Task> {
-    const useAgentAdapter = this.options.adapterOptions.useAgentAdapter && this.options.adapterOptions.getAgentConfig;
+    const useAgentAdapter =
+      this.options.adapterOptions.useAgentAdapter && this.options.adapterOptions.getAgentConfig;
     if (!useAgentAdapter) {
       const cliInstalled = await this.options.isCliAvailable();
       if (!cliInstalled) {
@@ -315,38 +316,41 @@ export class TaskManager {
     };
 
     const isFirstTask = this.isFirstTask;
-    (async () => {
-      try {
-        callbacks.onProgress({ stage: 'starting', message: 'Starting task...', isFirstTask });
+    try {
+      callbacks.onProgress({ stage: 'starting', message: 'Starting task...', isFirstTask });
 
-        if (this.options.onBeforeTaskStart) {
-          await this.options.onBeforeTaskStart(callbacks, isFirstTask, config);
-        }
-
-        if (this.isFirstTask) {
-          this.isFirstTask = false;
-        }
-
-        callbacks.onProgress({
-          stage: 'environment',
-          message: 'Setting up environment...',
-          isFirstTask,
-        });
-
-        await adapter.startTask({
-          ...config,
-          taskId,
-          workingDirectory: config.workingDirectory || this.options.defaultWorkingDirectory,
-        });
-      } catch (error) {
-        console.error(`[TaskManager] Task startup failed for ${taskId}:`, error);
-        callbacks.onError(error instanceof Error ? error : new Error(String(error)));
-        this.cleanupTask(taskId);
-        this.processQueue();
+      if (this.options.onBeforeTaskStart) {
+        await this.options.onBeforeTaskStart(callbacks, isFirstTask, config);
       }
-    })();
 
-    return task;
+      if (this.isFirstTask) {
+        this.isFirstTask = false;
+      }
+
+      callbacks.onProgress({
+        stage: 'environment',
+        message: 'Setting up environment...',
+        isFirstTask,
+      });
+
+      const adapterTask = await adapter.startTask({
+        ...config,
+        taskId,
+        workingDirectory: config.workingDirectory || this.options.defaultWorkingDirectory,
+      });
+
+      // Use adapter's task if it has messages (e.g. direct bypass for hackathon search)
+      if (adapterTask.messages && adapterTask.messages.length > 0) {
+        return { ...task, messages: adapterTask.messages };
+      }
+      return task;
+    } catch (error) {
+      console.error(`[TaskManager] Task startup failed for ${taskId}:`, error);
+      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+      this.cleanupTask(taskId);
+      this.processQueue();
+      throw error;
+    }
   }
 
   private async processQueue(): Promise<void> {

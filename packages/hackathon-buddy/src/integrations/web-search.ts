@@ -23,7 +23,11 @@ interface ExaResult {
 
 export async function webSearch(
   query: string,
-  options?: { num?: number; category?: 'people' | 'company' | 'research paper' | 'news' },
+  options?: {
+    num?: number;
+    category?: 'people' | 'company' | 'research paper' | 'news';
+    includeDomains?: string[];
+  },
 ): Promise<SearchResult[]> {
   const num = Math.min(options?.num ?? 10, 100);
   const exaKey = process.env.EXA_API_KEY;
@@ -40,6 +44,7 @@ export async function webSearch(
         contents: { text: true },
       };
       if (options?.category) body.category = options.category;
+      if (options?.includeDomains?.length) body.includeDomains = options.includeDomains;
       const res = await fetch(EXA_SEARCH_URL, {
         method: 'POST',
         headers: {
@@ -49,7 +54,16 @@ export async function webSearch(
         },
         body: JSON.stringify(body),
       });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error(
+          '[web-search] Exa API error:',
+          res.status,
+          res.statusText,
+          errBody.slice(0, 200),
+        );
+        return [];
+      }
       const data = (await res.json()) as { results?: ExaResult[] };
       return (data.results ?? []).map((r) => ({
         title: r.title ?? '',

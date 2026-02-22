@@ -35,6 +35,9 @@ import type { BrowserConfig } from '@accomplish_ai/agent-core';
 /** Browser mode for the current task. Set by onBeforeTaskStart, read by onBeforeStart. */
 let currentTaskBrowserOverride: BrowserConfig | undefined = undefined;
 
+/** When true, load only start-task, complete-task, hackathon-buddy (reduces tool count for hackathon prompts). */
+let currentTaskHackathonOnly = false;
+
 /** Browser server promise started in onBeforeTaskStart, awaited in onBeforeStart. */
 let pendingBrowserPromise: Promise<{ ready: boolean; logs: string[] }> | null = null;
 
@@ -271,7 +274,11 @@ async function prepareConfig(): Promise<void> {
     azureFoundryToken = tokenResult.token;
   }
 
-  await generateOpenCodeConfig(azureFoundryToken, currentTaskBrowserOverride);
+  await generateOpenCodeConfig(
+    azureFoundryToken,
+    currentTaskBrowserOverride,
+    currentTaskHackathonOnly,
+  );
 }
 
 export async function onBeforeStart(): Promise<void> {
@@ -292,7 +299,7 @@ function _getBrowserServerConfig(): BrowserServerConfig {
   };
 }
 
-/** Keywords that suggest the user wants browser/web automation */
+/** Keywords that suggest the user wants browser/web automation or Hackathon Buddy tools */
 const BROWSER_KEYWORDS = [
   'search',
   'google',
@@ -318,6 +325,12 @@ const BROWSER_KEYWORDS = [
   'go to',
   'fetch',
   'scraping',
+  'hackathon',
+  'validate',
+  'validate my idea',
+  'ticket board',
+  'judge',
+  'grants',
 ];
 
 /**
@@ -381,6 +394,18 @@ export function isSimpleConversationalPrompt(prompt: string): boolean {
   return words.length <= 6;
 }
 
+function isHackathonPrompt(prompt: string): boolean {
+  const lower = prompt.toLowerCase();
+  return (
+    lower.includes('/hackathon-buddy') ||
+    (lower.includes('hackathon') &&
+      (lower.includes('search') ||
+        lower.includes('find') ||
+        lower.includes('validate') ||
+        lower.includes('ticket')))
+  );
+}
+
 export async function onBeforeTaskStart(
   callbacks: TaskCallbacks,
   // config may be undefined if TaskManager hasn't been rebuilt; treat as simple (no browser)
@@ -388,7 +413,10 @@ export async function onBeforeTaskStart(
   config?: TaskConfig,
 ): Promise<void> {
   const prompt = config?.prompt?.trim() ?? '';
-  const useBrowser = prompt.length > 0 && !isSimpleConversationalPrompt(prompt);
+  const hackathonOnly = isHackathonPrompt(prompt);
+  currentTaskHackathonOnly = hackathonOnly;
+  // Hackathon prompts: no browser (Exa does search), use minimal MCP set
+  const useBrowser = !hackathonOnly && prompt.length > 0 && !isSimpleConversationalPrompt(prompt);
   currentTaskBrowserOverride = useBrowser ? { mode: 'embedded' } : { mode: 'none' };
 
   if (useBrowser) {

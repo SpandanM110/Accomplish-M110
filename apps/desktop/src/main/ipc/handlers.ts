@@ -214,7 +214,10 @@ export function registerIPCHandlers(): void {
         apiKey ?? undefined,
       );
 
-      if (directConfig && (selectedModel.provider === 'ollama' || selectedModel.provider === 'lmstudio' || apiKey)) {
+      if (
+        directConfig &&
+        (selectedModel.provider === 'ollama' || selectedModel.provider === 'lmstudio' || apiKey)
+      ) {
         console.log('[Main] Using direct chat path (bypassing OpenCode) for faster response');
         const task: import('@accomplish_ai/agent-core').Task = {
           id: taskId,
@@ -233,7 +236,11 @@ export function registerIPCHandlers(): void {
         task.messages = [initialUserMessage];
         storage.saveTask(task);
 
-        callbacks.onProgress?.({ stage: 'direct-chat', message: 'Direct response...', isFirstTask: true });
+        callbacks.onProgress?.({
+          stage: 'direct-chat',
+          message: 'Direct response...',
+          isFirstTask: true,
+        });
         callbacks.onStatusChange?.('running');
 
         void runDirectChat(validatedConfig.prompt, directConfig, {
@@ -274,16 +281,26 @@ export function registerIPCHandlers(): void {
       }
     }
 
-    const task = await taskManager.startTask(taskId, validatedConfig, callbacks);
-
+    // Save task first so addTaskMessage (from batched messages) has a valid task_id
     const initialUserMessage: TaskMessage = {
       id: createMessageId(),
       type: 'user',
       content: validatedConfig.prompt,
       timestamp: new Date().toISOString(),
     };
-    task.messages = [initialUserMessage];
+    const initialTask: import('@accomplish_ai/agent-core').Task = {
+      id: taskId,
+      prompt: validatedConfig.prompt,
+      status: 'running',
+      messages: [initialUserMessage],
+      createdAt: new Date().toISOString(),
+    };
+    storage.saveTask(initialTask);
 
+    const task = await taskManager.startTask(taskId, validatedConfig, callbacks);
+
+    // Merge adapter messages (e.g. direct bypass hackathon results) with user message
+    task.messages = [initialUserMessage, ...(task.messages || [])];
     storage.saveTask(task);
 
     const summarizerOllama =
@@ -468,27 +485,37 @@ export function registerIPCHandlers(): void {
           const messages = existingTask.messages ?? [];
           const priorMessages = messages.slice(0, -1);
           const conversationHistory = priorMessages
-            .filter((m): m is TaskMessage & { type: 'user' | 'assistant' } =>
-              m.type === 'user' || m.type === 'assistant',
+            .filter(
+              (m): m is TaskMessage & { type: 'user' | 'assistant' } =>
+                m.type === 'user' || m.type === 'assistant',
             )
             .map((m) => ({ role: m.type as 'user' | 'assistant', content: m.content }));
 
           storage.updateTaskStatus(validatedExistingTaskId, 'running', new Date().toISOString());
           callbacks.onStatusChange?.('running');
-          callbacks.onProgress?.({ stage: 'direct-chat', message: 'Direct response...', isFirstTask: false });
+          callbacks.onProgress?.({
+            stage: 'direct-chat',
+            message: 'Direct response...',
+            isFirstTask: false,
+          });
 
-          await runDirectChat(validatedPrompt, directConfig, {
-            onProgress: (stage, msg) => callbacks.onProgress?.({ stage, message: msg }),
-            onMessage: (msg) => callbacks.onBatchedMessages!([msg]),
-            onComplete: () => {
-              callbacks.onComplete({
-                status: 'success',
-                durationMs: 0,
-                sessionId: `direct-${validatedExistingTaskId}`,
-              });
+          await runDirectChat(
+            validatedPrompt,
+            directConfig,
+            {
+              onProgress: (stage, msg) => callbacks.onProgress?.({ stage, message: msg }),
+              onMessage: (msg) => callbacks.onBatchedMessages!([msg]),
+              onComplete: () => {
+                callbacks.onComplete({
+                  status: 'success',
+                  durationMs: 0,
+                  sessionId: `direct-${validatedExistingTaskId}`,
+                });
+              },
+              onError: (err) => callbacks.onError?.(err),
             },
-            onError: (err) => callbacks.onError?.(err),
-          }, { conversationHistory });
+            { conversationHistory },
+          );
 
           const updatedTask = storage.getTask(validatedExistingTaskId);
           return updatedTask ?? existingTask;
@@ -1427,7 +1454,25 @@ export function registerIPCHandlers(): void {
     if (!connector) throw new Error('Connector not found');
 
     // 1. Discover OAuth metadata
-    const metadata = await discoverOAuthMetadata(connector.url);
+    let metadata;
+    try {
+      metadata = await discoverOAuthMetadata(connector.url);
+    } catch (err) {
+      const cause = err instanceof Error ? err.cause : undefined;
+      const code =
+        cause && typeof cause === 'object' && 'code' in cause
+          ? (cause as { code?: string }).code
+          : undefined;
+      if (
+        code === 'ECONNREFUSED' ||
+        (err instanceof Error && err.message.includes('fetch failed'))
+      ) {
+        throw new Error(
+          `Cannot reach ${connector.url}. Make sure the MCP server is running. Connectors require OAuth-enabled remote servers.`,
+        );
+      }
+      throw err;
+    }
 
     // 2. Register client dynamically
     let clientReg = connector.clientRegistration;

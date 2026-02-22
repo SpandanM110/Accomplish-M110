@@ -69,12 +69,14 @@ export function invalidateOpenCodeConfigCache(): void {
 export async function generateOpenCodeConfig(
   azureFoundryToken?: string,
   browserOverride?: BrowserConfig,
+  hackathonOnly?: boolean,
 ): Promise<string> {
   const browserMode = browserOverride?.mode ?? 'builtin';
+  const cacheKey = `${browserMode}:${hackathonOnly ?? false}`;
   const now = Date.now();
   if (
     lastConfigResult &&
-    lastConfigResult.browserMode === browserMode &&
+    lastConfigResult.browserMode === cacheKey &&
     now - lastConfigResult.at < CONFIG_CACHE_TTL_MS
   ) {
     if (fs.existsSync(lastConfigResult.path)) {
@@ -189,12 +191,13 @@ export async function generateOpenCodeConfig(
     connectors: connectors.length > 0 ? connectors : undefined,
     browser: browserOverride,
     hackathonBuddyPath: hackathonBuddyPath,
+    hackathonOnly: hackathonOnly ?? false,
   });
 
   process.env.OPENCODE_CONFIG = result.configPath;
   process.env.OPENCODE_CONFIG_DIR = path.dirname(result.configPath);
 
-  lastConfigResult = { path: result.configPath, browserMode, at: now };
+  lastConfigResult = { path: result.configPath, browserMode: cacheKey, at: now };
   lastGeneratedConfig = result;
 
   console.log('[OpenCode Config] Generated config at:', result.configPath);

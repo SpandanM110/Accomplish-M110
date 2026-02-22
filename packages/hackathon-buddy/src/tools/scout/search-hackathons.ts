@@ -45,12 +45,18 @@ export async function execute(args: Record<string, unknown>): Promise<string> {
         const url = h.url || `https://devpost.com/software/${h.id}`;
         return `- **${h.title}** — ${h.prize_amount || 'Prizes TBD'} | [Link](${url}) | ${h.end_date || 'Deadline TBD'}`;
       });
+      const header = `## Hackathons (${result.total_count} total)`;
+      const hint =
+        result.total_count === 0
+          ? '\n\n*Tip: Set EXA_API_KEY in .env for Exa search. Also try BRAVE_API_KEY or SERPER_API_KEY.*'
+          : '';
       return [
-        `## Hackathons (${result.total_count} total)`,
+        header,
         '',
         ...lines,
         '',
         result.has_more ? `*More results available (offset ${result.next_offset})*` : '',
+        hint,
       ].join('\n');
     }
 

@@ -253,7 +253,7 @@
     "dark": "Dark"
   },
   "connectors": {
-    "description": "Connect remote MCP servers using OAuth. Only servers that support the OAuth 2.0 authorization flow are currently supported.",
+    "description": "Connect remote OAuth-enabled MCP servers. Bundled tools (e.g. Hackathon Buddy) work automatically — no connector needed.",
     "loading": "Loading connectors...",
     "placeholder": "https://mcp-server.example.com",
     "add": "Add",

@@ -225,7 +225,7 @@
     "dark": "深色"
   },
   "connectors": {
-    "description": "通过 OAuth 连接远程 MCP 服务器。目前仅支持支持 OAuth 2.0 授权流程的服务器。",
+    "description": "连接支持 OAuth 的远程 MCP 服务器。内置工具（如 Hackathon Buddy）自动可用，无需添加连接器。",
     "loading": "加载连接器...",
     "placeholder": "https://mcp-server.example.com",
     "add": "添加",

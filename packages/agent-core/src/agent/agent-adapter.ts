@@ -160,6 +160,18 @@ export class AgentAdapter extends EventEmitter<AgentAdapterEvents> {
         modelName: modelDisplayName,
       });
 
+      // Direct bypass for hackathon search — skip LLM when model struggles with tools
+      if (await this.tryDirectHackathonSearch(config.prompt, tools)) {
+        return {
+          id: this.taskId,
+          prompt: config.prompt,
+          status: 'running',
+          messages: this.messages,
+          createdAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+        };
+      }
+
       await this.runAgentLoop(
         config.prompt,
         agentConfig.systemPrompt,
@@ -192,30 +204,114 @@ export class AgentAdapter extends EventEmitter<AgentAdapterEvents> {
     };
   }
 
+  /**
+   * Direct bypass for hackathon search prompts. Skips the LLM entirely.
+   * Just: execute search tool → emit result → complete. No start_task, no complete_task, no side effects.
+   */
+  private async tryDirectHackathonSearch(
+    prompt: string,
+    tools: Record<string, unknown>,
+  ): Promise<boolean> {
+    const searchTool = 'hb_scout_search_hackathons' in tools ? 'hb_scout_search_hackathons' : null;
+    if (!searchTool) return false;
+
+    const lower = (prompt ?? '').trim().toLowerCase();
+    if (
+      !lower.includes('/hackathon-buddy') &&
+      !(lower.includes('hackathon') && (lower.includes('search') || lower.includes('find')))
+    ) {
+      return false;
+    }
+
+    let query = 'hackathons';
+    const match = prompt.match(/(?:hackathon-buddy\s+)?(?:search\s+for\s+|find\s+)(.+)/i);
+    if (match?.[1]) query = match[1].trim();
+
+    this.emit('progress', { stage: 'tool-use', message: 'Searching hackathons...' });
+
+    try {
+      const tool = tools[searchTool] as { execute?: (args: unknown) => Promise<unknown> };
+      if (typeof tool?.execute !== 'function') return false;
+
+      const result = await tool.execute({ query, platform: 'all', response_format: 'markdown' });
+      // MCP tools return { content: [{ type: 'text', text: '...' }] } — extract the text
+      let searchResult: string;
+      if (typeof result === 'string') {
+        searchResult = result;
+      } else if (
+        result &&
+        typeof result === 'object' &&
+        Array.isArray((result as { content?: unknown[] }).content)
+      ) {
+        const content = (result as { content: Array<{ type?: string; text?: string }> }).content;
+        const textBlock = content.find((c) => c.type === 'text');
+        searchResult = textBlock?.text ?? JSON.stringify(result);
+      } else {
+        searchResult = JSON.stringify(result ?? '');
+      }
+
+      const msg: TaskMessage = {
+        id: createMessageId(),
+        type: 'assistant',
+        content: searchResult,
+        timestamp: new Date().toISOString(),
+      };
+      this.messages.push(msg);
+      this.emit('message', {
+        type: 'text',
+        part: {
+          id: msg.id,
+          sessionID: this.sessionId || '',
+          messageID: msg.id,
+          type: 'text',
+          text: searchResult,
+        },
+      } as OpenCodeMessage);
+
+      this.hasCompleted = true;
+      this.emit('complete', { status: 'success', sessionId: this.sessionId || undefined });
+      return true;
+    } catch (err) {
+      console.warn('[AgentAdapter] Direct hackathon search failed:', err);
+      return false;
+    }
+  }
+
   private async runAgentLoop(
     userPrompt: string,
     systemPrompt: string,
     model: Parameters<typeof streamText>[0]['model'],
-    tools: Record<string, Parameters<typeof streamText>[0]['tools'][string]>,
+    tools: Parameters<typeof streamText>[0]['tools'],
     provider?: string,
   ): Promise<void> {
-    const toolCount = Object.keys(tools).length;
-    // Groq does not support tool_choice: 'required'. Use specific tool to force first step.
+    const toolsRecord = tools as Record<string, unknown>;
+    const toolCount = Object.keys(toolsRecord).length;
+    // Force tool use on first turn — small models (Groq 8B, Ollama 3b, etc.) often return empty with 'auto'
+    // Use explicit start_task for ALL providers; 'required' is rejected by Groq and some others
     let toolChoice: 'auto' | 'required' | { type: 'tool'; toolName: string } = 'auto';
     if (toolCount > 0) {
-      if (provider === 'groq') {
-        // Force start_task to bootstrap the agent loop — Groq often returns empty with 'auto'
-        toolChoice = 'start_task' in tools ? { type: 'tool', toolName: 'start_task' } : 'auto';
+      const firstTool =
+        'start_task' in toolsRecord
+          ? 'start_task'
+          : (Object.keys(toolsRecord).find((k) => k.endsWith('_start_task')) ?? null);
+      if (firstTool) {
+        toolChoice = { type: 'tool', toolName: firstTool };
       } else {
-        toolChoice = 'required';
+        toolChoice = provider === 'groq' ? 'auto' : 'required';
       }
     }
+    this.emit('debug', {
+      type: 'stream',
+      message: `toolChoice: ${JSON.stringify(toolChoice)}, toolCount: ${toolCount}`,
+    });
+
     const result = streamText({
       model,
       system: systemPrompt,
       prompt: userPrompt,
       tools,
       maxSteps: MAX_STEPS,
+      maxTokens: 4096,
       abortSignal: this.abortController?.signal,
       toolChoice,
       onFinish: ({ finishReason }) => {
@@ -373,7 +469,7 @@ export class AgentAdapter extends EventEmitter<AgentAdapterEvents> {
 
     if (fullText.length === 0 && !hadToolCalls && toolCount > 0) {
       const fallbackMsg =
-        'The model returned no output. For web research, ensure you use a model that supports tool use (e.g. Llama 3.1 70B or Claude). Try a different model in Settings.';
+        'The model returned no output. Try a larger model in Settings (e.g. Groq llama-3.1-70b-versatile, Ollama llama3.2:3b, or Claude). Small models often struggle with many tools. For hackathon search, the direct path should have been used — if you see this, please report the prompt.';
       const msg: TaskMessage = {
         id: createMessageId(),
         type: 'assistant',

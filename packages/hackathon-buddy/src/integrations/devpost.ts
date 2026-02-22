@@ -27,12 +27,15 @@ export async function searchHackathons(params: {
   perPage?: number;
 }): Promise<{ hackathons: DevpostHackathon[]; total?: number }> {
   const perPage = Math.min(params.perPage ?? 20, 50);
-  const q = (params.query || 'hackathon 2025').trim();
+  const q = (params.query || 'active upcoming hackathons 2025').trim();
 
   try {
-    const results = await webSearch(`${q} site:devpost.com hackathon`, { num: perPage });
+    const results = await webSearch(q, { num: perPage });
+    const hackathonDomains = ['devpost.com', 'devfolio.co', 'mlh.io'];
     const hackathons: DevpostHackathon[] = results
-      .filter((r) => r.url.includes('devpost.com') && !r.url.includes('/software/'))
+      .filter(
+        (r) => hackathonDomains.some((d) => r.url.includes(d)) && !r.url.includes('/software/'),
+      )
       .slice(0, perPage)
       .map((r, i) => ({
         id: `devpost-${i + 1}`,

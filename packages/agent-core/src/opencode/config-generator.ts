@@ -49,6 +49,8 @@ export interface ConfigGeneratorOptions {
   }>;
   /** Optional path to Hackathon Buddy MCP server (packages/hackathon-buddy) */
   hackathonBuddyPath?: string;
+  /** When true, load only start-task, complete-task, hackathon-buddy (no browser, file-permission, ask-user). Reduces tool count for hackathon prompts. */
+  hackathonOnly?: boolean;
 }
 
 export interface ProviderConfig {
@@ -388,41 +390,47 @@ Use empty array [] if no skills apply to your task.
     ? path.join(bundledNodeBinPath, platform === 'win32' ? 'node.exe' : 'node')
     : undefined;
 
+  const hackathonOnly = options.hackathonOnly === true;
+
   const mcpServers: Record<string, McpServerConfig> = {
-    'file-permission': {
-      type: 'local',
-      command: resolveMcpCommand(
-        tsxCommand,
-        mcpToolsPath,
-        'file-permission',
-        'src/index.ts',
-        'dist/index.mjs',
-        isPackaged,
-        nodePath,
-      ),
-      enabled: true,
-      environment: {
-        PERMISSION_API_PORT: String(permissionApiPort),
-      },
-      timeout: 30000,
-    },
-    'ask-user-question': {
-      type: 'local',
-      command: resolveMcpCommand(
-        tsxCommand,
-        mcpToolsPath,
-        'ask-user-question',
-        'src/index.ts',
-        'dist/index.mjs',
-        isPackaged,
-        nodePath,
-      ),
-      enabled: true,
-      environment: {
-        QUESTION_API_PORT: String(questionApiPort),
-      },
-      timeout: 600000, // 10 minutes — user needs time to read and respond
-    },
+    ...(hackathonOnly
+      ? {}
+      : {
+          'file-permission': {
+            type: 'local',
+            command: resolveMcpCommand(
+              tsxCommand,
+              mcpToolsPath,
+              'file-permission',
+              'src/index.ts',
+              'dist/index.mjs',
+              isPackaged,
+              nodePath,
+            ),
+            enabled: true,
+            environment: {
+              PERMISSION_API_PORT: String(permissionApiPort),
+            },
+            timeout: 30000,
+          },
+          'ask-user-question': {
+            type: 'local',
+            command: resolveMcpCommand(
+              tsxCommand,
+              mcpToolsPath,
+              'ask-user-question',
+              'src/index.ts',
+              'dist/index.mjs',
+              isPackaged,
+              nodePath,
+            ),
+            enabled: true,
+            environment: {
+              QUESTION_API_PORT: String(questionApiPort),
+            },
+            timeout: 600000, // 10 minutes — user needs time to read and respond
+          },
+        }),
     'complete-task': {
       type: 'local',
       command: resolveMcpCommand(
@@ -454,9 +462,10 @@ Use empty array [] if no skills apply to your task.
   };
 
   // Conditionally register browser MCP: embedded = fast Electron BrowserView, builtin/remote = dev-browser
+  // Skip browser when hackathonOnly — reduces tool count for hackathon prompts
   const browserConfig = options.browser ?? { mode: 'embedded' };
 
-  if (browserConfig.mode !== 'none') {
+  if (!hackathonOnly && browserConfig.mode !== 'none') {
     if (browserConfig.mode === 'embedded') {
       mcpServers['embedded-browser'] = {
         type: 'local',
@@ -507,13 +516,24 @@ Use empty array [] if no skills apply to your task.
     const useDist = (isPackaged || !fs.existsSync(srcPath)) && fs.existsSync(distPath);
     const entryPath = useDist ? distPath : srcPath;
     const cmd = useDist ? [nodePath || 'node', entryPath] : [...tsxCommand, entryPath];
+    const hbEnv: Record<string, string> = {};
+    if (process.env.EXA_API_KEY) hbEnv.EXA_API_KEY = process.env.EXA_API_KEY;
+    if (process.env.BRAVE_API_KEY) hbEnv.BRAVE_API_KEY = process.env.BRAVE_API_KEY;
+    if (process.env.SERPER_API_KEY) hbEnv.SERPER_API_KEY = process.env.SERPER_API_KEY;
     mcpServers['hackathon-buddy'] = {
       type: 'local',
       command: cmd,
       enabled: true,
       timeout: 60000,
+      ...(Object.keys(hbEnv).length > 0 && { environment: hbEnv }),
     };
-    console.log('[OpenCode Config] Hackathon Buddy MCP enabled:', entryPath);
+    console.log(
+      '[OpenCode Config] Hackathon Buddy MCP enabled:',
+      entryPath,
+      Object.keys(hbEnv).length
+        ? `env: ${Object.keys(hbEnv).join(', ')}`
+        : '(no search API keys in env)',
+    );
   }
 
   // Add connected MCP connectors as remote servers
