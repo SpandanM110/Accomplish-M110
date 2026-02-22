@@ -57,5 +57,17 @@
       "description": "选择热门活动并添加到日历。",
       "prompt": "从 Eventbrite 抓取活动列表，按地点筛选，并将前 5 个添加到我的日历。"
     }
+  },
+  "hackathonSection": {
+    "title": "Hackathon Buddy",
+    "subtitle": "发现、验证、规划、路演、交付",
+    "prompts": {
+      "search": "搜索活跃的黑客松",
+      "validate": "验证我的想法：一个面向学生的 AI 学习规划器",
+      "ticketBoard": "为习惯追踪应用生成任务看板",
+      "judgeDossiers": "为 MLH 黑客松构建评委档案",
+      "readme": "为我们的黑客松项目生成 README",
+      "winningProjects": "从 Devpost 黑客松 [URL] 获取获奖项目"
+    }
   }
 }

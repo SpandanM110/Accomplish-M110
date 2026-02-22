@@ -8,7 +8,7 @@ import { useTaskStore } from '../stores/taskStore';
 import { getAccomplish } from '../lib/accomplish';
 import { springs, staggerContainer, staggerItem } from '../lib/animations';
 import { Card, CardContent } from '@/components/ui/card';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Trophy } from 'lucide-react';
 import { hasAnyReadyProvider } from '@accomplish_ai/agent-core/common';
 
 // Import use case images for proper bundling in production
@@ -214,34 +214,76 @@ export function HomePage() {
                           variants={staggerContainer}
                           initial="initial"
                           animate="animate"
-                          className="grid grid-cols-3 gap-3"
+                          className="space-y-4"
                         >
-                          {useCaseExamples.map((example, index) => (
-                            <motion.button
-                              key={index}
-                              data-testid={`home-example-${index}`}
-                              variants={staggerItem}
-                              transition={springs.gentle}
-                              whileHover={{ scale: 1.03, transition: { duration: 0.15 } }}
-                              whileTap={{ scale: 0.97 }}
-                              onClick={() => handleExampleClick(example.prompt)}
-                              className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border bg-card hover:border-ring hover:bg-muted/50"
-                            >
-                              <img
-                                src={example.image}
-                                alt={example.title}
-                                className="w-12 h-12 object-cover rounded"
-                              />
-                              <div className="flex flex-col items-center gap-1 w-full">
-                                <div className="font-medium text-xs text-foreground text-center">
-                                  {example.title}
+                          <div className="grid grid-cols-3 gap-3">
+                            {useCaseExamples.map((example, index) => (
+                              <motion.button
+                                key={index}
+                                data-testid={`home-example-${index}`}
+                                variants={staggerItem}
+                                transition={springs.gentle}
+                                whileHover={{ scale: 1.03, transition: { duration: 0.15 } }}
+                                whileTap={{ scale: 0.97 }}
+                                onClick={() => handleExampleClick(example.prompt)}
+                                className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border bg-card hover:border-ring hover:bg-muted/50"
+                              >
+                                <img
+                                  src={example.image}
+                                  alt={example.title}
+                                  className="w-12 h-12 object-cover rounded"
+                                />
+                                <div className="flex flex-col items-center gap-1 w-full">
+                                  <div className="font-medium text-xs text-foreground text-center">
+                                    {example.title}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground text-center line-clamp-2">
+                                    {example.description}
+                                  </div>
                                 </div>
-                                <div className="text-xs text-muted-foreground text-center line-clamp-2">
-                                  {example.description}
-                                </div>
-                              </div>
-                            </motion.button>
-                          ))}
+                              </motion.button>
+                            ))}
+                          </div>
+                          {/* Hackathon Buddy section */}
+                          <div className="pt-2 border-t border-border/50">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Trophy className="h-4 w-4 text-amber-500" />
+                              <span className="font-medium text-sm text-foreground">
+                                {t('hackathonSection.title')}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mb-2">
+                              {t('hackathonSection.subtitle')}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {(
+                                [
+                                  'search',
+                                  'validate',
+                                  'ticketBoard',
+                                  'judgeDossiers',
+                                  'readme',
+                                  'winningProjects',
+                                ] as const
+                              ).map((key) => (
+                                <motion.button
+                                  key={key}
+                                  variants={staggerItem}
+                                  transition={springs.gentle}
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                  onClick={() =>
+                                    handleExampleClick(
+                                      `/hackathon-buddy ${t(`hackathonSection.prompts.${key}`)}`,
+                                    )
+                                  }
+                                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 hover:border-amber-500/40"
+                                >
+                                  {t(`hackathonSection.prompts.${key}`)}
+                                </motion.button>
+                              ))}
+                            </div>
+                          </div>
                         </motion.div>
                       </div>
                     </motion.div>

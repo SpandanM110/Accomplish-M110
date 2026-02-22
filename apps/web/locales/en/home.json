@@ -57,5 +57,17 @@
       "description": "Select top events and add them to the calendar.",
       "prompt": "Scrape event listings from Eventbrite, filter by location, and add top 5 to my calendar."
     }
+  },
+  "hackathonSection": {
+    "title": "Hackathon Buddy",
+    "subtitle": "Discover, validate, plan, pitch, and ship",
+    "prompts": {
+      "search": "Search for active hackathons",
+      "validate": "Validate my idea: an AI-powered study planner for students",
+      "ticketBoard": "Generate a ticket board for building a habit-tracking app",
+      "judgeDossiers": "Build judge dossiers for MLH Hackathon",
+      "readme": "Generate a README for our hackathon project",
+      "winningProjects": "Get winning projects from Devpost hackathon [URL]"
+    }
   }
 }

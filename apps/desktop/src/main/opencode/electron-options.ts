@@ -396,13 +396,27 @@ export function isSimpleConversationalPrompt(prompt: string): boolean {
 
 function isHackathonPrompt(prompt: string): boolean {
   const lower = prompt.toLowerCase();
+  const hackathonKeywords = [
+    'search',
+    'find',
+    'validate',
+    'ticket',
+    'judge',
+    'dossier',
+    'readme',
+    'winning',
+    'grants',
+    'devpost',
+    'boilerplate',
+    'moat',
+    'burndown',
+    'panic',
+    'linkedin',
+    'sprint',
+  ];
   return (
     lower.includes('/hackathon-buddy') ||
-    (lower.includes('hackathon') &&
-      (lower.includes('search') ||
-        lower.includes('find') ||
-        lower.includes('validate') ||
-        lower.includes('ticket')))
+    (lower.includes('hackathon') && hackathonKeywords.some((k) => lower.includes(k)))
   );
 }
 
