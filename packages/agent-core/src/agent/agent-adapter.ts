@@ -6,7 +6,7 @@
 import { EventEmitter } from 'events';
 import { streamText } from 'ai';
 import { createModel } from './provider-factory.js';
-import { createMcpClientsAndTools, type McpServerSpec } from './mcp-manager.js';
+import { createMcpClientsAndTools } from './mcp-manager.js';
 import {
   CompletionEnforcer,
   type CompletionEnforcerCallbacks,
@@ -160,7 +160,13 @@ export class AgentAdapter extends EventEmitter<AgentAdapterEvents> {
         modelName: modelDisplayName,
       });
 
-      await this.runAgentLoop(config.prompt, agentConfig.systemPrompt, model, tools);
+      await this.runAgentLoop(
+        config.prompt,
+        agentConfig.systemPrompt,
+        model,
+        tools,
+        agentConfig.provider,
+      );
     } catch (err) {
       if (!this.hasCompleted) {
         this.hasCompleted = true;
@@ -191,7 +197,19 @@ export class AgentAdapter extends EventEmitter<AgentAdapterEvents> {
     systemPrompt: string,
     model: Parameters<typeof streamText>[0]['model'],
     tools: Record<string, Parameters<typeof streamText>[0]['tools'][string]>,
+    provider?: string,
   ): Promise<void> {
+    const toolCount = Object.keys(tools).length;
+    // Groq does not support tool_choice: 'required'. Use specific tool to force first step.
+    let toolChoice: 'auto' | 'required' | { type: 'tool'; toolName: string } = 'auto';
+    if (toolCount > 0) {
+      if (provider === 'groq') {
+        // Force start_task to bootstrap the agent loop — Groq often returns empty with 'auto'
+        toolChoice = 'start_task' in tools ? { type: 'tool', toolName: 'start_task' } : 'auto';
+      } else {
+        toolChoice = 'required';
+      }
+    }
     const result = streamText({
       model,
       system: systemPrompt,
@@ -199,61 +217,183 @@ export class AgentAdapter extends EventEmitter<AgentAdapterEvents> {
       tools,
       maxSteps: MAX_STEPS,
       abortSignal: this.abortController?.signal,
+      toolChoice,
       onFinish: ({ finishReason }) => {
         this.emit('step-finish', {
-          reason: finishReason === 'stop' ? 'stop' : finishReason === 'tool-calls' ? 'tool_use' : 'end_turn',
+          reason:
+            finishReason === 'stop'
+              ? 'stop'
+              : finishReason === 'tool-calls'
+                ? 'tool_use'
+                : 'end_turn',
         });
       },
     });
 
     let fullText = '';
-    for await (const chunk of result.textStream) {
-      fullText += chunk;
-      const display = sanitizeAssistantTextForDisplay(fullText) ?? fullText;
-      if (display) {
-        const msg: TaskMessage = {
-          id: createMessageId(),
-          type: 'assistant',
-          content: display,
-          timestamp: new Date().toISOString(),
-        };
-        this.messages.push(msg);
-        this.emit('message', {
-          type: 'text',
-          part: {
-            id: msg.id,
-            sessionID: this.sessionId || '',
-            messageID: msg.id,
+    let lastFinishReason: string = 'stop';
+    let streamingMsgId: string | null = null;
+    let lastEmitTime = 0;
+    let partCount = 0;
+    let toolCallsReceived = 0;
+    const EMIT_THROTTLE_MS = 80;
+
+    function getFinishReason(part: unknown): string | undefined {
+      const p = part as { finishReason?: string; response?: { finishReason?: string } };
+      return p.finishReason ?? p.response?.finishReason;
+    }
+
+    // Use fullStream for incremental processing — avoids "stuck" waiting for full stream
+    for await (const part of result.fullStream) {
+      partCount++;
+      const p = part as {
+        type?: string;
+        textDelta?: string;
+        toolName?: string;
+        args?: unknown;
+        result?: unknown;
+      };
+      if (partCount <= 3 || partCount % 20 === 0) {
+        this.emit('debug', {
+          type: 'stream',
+          message: `Part #${partCount}: ${p.type}`,
+          data: { type: p.type, hasText: !!p.textDelta, toolName: p.toolName },
+        });
+      }
+      if (p.type === 'text-delta' && p.textDelta) {
+        fullText += p.textDelta;
+        const display = sanitizeAssistantTextForDisplay(fullText) ?? fullText;
+        if (display) {
+          const now = Date.now();
+          const shouldEmit = !streamingMsgId || now - lastEmitTime >= EMIT_THROTTLE_MS;
+          if (!streamingMsgId) {
+            streamingMsgId = createMessageId();
+          }
+          if (shouldEmit) {
+            lastEmitTime = now;
+            const msg: TaskMessage = {
+              id: streamingMsgId,
+              type: 'assistant',
+              content: display,
+              timestamp: new Date().toISOString(),
+            };
+            const lastIdx = this.messages.findIndex((m) => m.id === streamingMsgId);
+            if (lastIdx >= 0) {
+              this.messages[lastIdx] = msg;
+            } else {
+              this.messages.push(msg);
+            }
+            this.emit('message', {
+              type: 'text',
+              part: {
+                id: msg.id,
+                sessionID: this.sessionId || '',
+                messageID: msg.id,
+                type: 'text',
+                text: display,
+              },
+            } as OpenCodeMessage);
+            this.emit('reasoning', display);
+          }
+        }
+      } else if (p.type === 'reasoning' && (p as { textDelta?: string }).textDelta) {
+        const r = part as { textDelta?: string };
+        if (r.textDelta) this.emit('reasoning', r.textDelta);
+      } else if (p.type === 'tool-call' && p.toolName) {
+        toolCallsReceived++;
+        streamingMsgId = null;
+        this.handleToolCall(p.toolName, p.args ?? {});
+      } else if (p.type === 'tool-result') {
+        const tr = part as { toolName?: string; args?: unknown; result?: unknown };
+        if (tr.toolName) {
+          const output =
+            typeof tr.result === 'string'
+              ? tr.result
+              : ((tr.result as { result?: unknown })?.result ?? String(tr.result ?? ''));
+          this.handleToolResult(tr.toolName, tr.args ?? {}, output);
+        }
+      } else if (p.type === 'step-finish') {
+        if (fullText && streamingMsgId) {
+          const display = sanitizeAssistantTextForDisplay(fullText) ?? fullText;
+          const msg: TaskMessage = {
+            id: streamingMsgId,
+            type: 'assistant',
+            content: display,
+            timestamp: new Date().toISOString(),
+          };
+          const lastIdx = this.messages.findIndex((m) => m.id === streamingMsgId);
+          if (lastIdx >= 0) this.messages[lastIdx] = msg;
+          else this.messages.push(msg);
+          this.emit('message', {
             type: 'text',
-            text: display,
-          },
-        } as OpenCodeMessage);
-        this.emit('reasoning', display);
+            part: {
+              id: msg.id,
+              sessionID: this.sessionId || '',
+              messageID: msg.id,
+              type: 'text',
+              text: display,
+            },
+          } as OpenCodeMessage);
+        }
+        streamingMsgId = null;
+        const reason = getFinishReason(part);
+        if (reason) lastFinishReason = reason;
+      } else if (p.type === 'finish') {
+        if (fullText && streamingMsgId) {
+          const display = sanitizeAssistantTextForDisplay(fullText) ?? fullText;
+          const msg: TaskMessage = {
+            id: streamingMsgId,
+            type: 'assistant',
+            content: display,
+            timestamp: new Date().toISOString(),
+          };
+          const lastIdx = this.messages.findIndex((m) => m.id === streamingMsgId);
+          if (lastIdx >= 0) this.messages[lastIdx] = msg;
+          else this.messages.push(msg);
+          this.emit('message', {
+            type: 'text',
+            part: {
+              id: msg.id,
+              sessionID: this.sessionId || '',
+              messageID: msg.id,
+              type: 'text',
+              text: display,
+            },
+          } as OpenCodeMessage);
+        }
+        streamingMsgId = null;
+        lastFinishReason = getFinishReason(part) ?? lastFinishReason;
       }
     }
 
-    const finalResult = await result;
-    const steps = finalResult.steps ?? [];
+    const hadToolCalls = toolCallsReceived > 0;
+    console.log(
+      `[AgentAdapter] Stream ended. Parts: ${partCount}, finishReason: ${lastFinishReason}, textLength: ${fullText.length}, hadToolCalls: ${hadToolCalls}`,
+    );
 
-    for (const step of steps) {
-      if (step.toolCalls) {
-        for (const tc of step.toolCalls) {
-          this.handleToolCall(tc.toolName, tc.args);
-        }
-      }
-      if (step.toolResults) {
-        for (let i = 0; i < step.toolResults.length; i++) {
-          const tr = step.toolResults[i];
-          const tc = step.toolCalls?.[i];
-          const toolName = tc?.toolName ?? 'unknown';
-          const output = typeof tr === 'string' ? tr : (tr as { result?: unknown })?.result ?? String(tr);
-          this.handleToolResult(toolName, tc?.args ?? {}, output);
-        }
-      }
+    if (fullText.length === 0 && !hadToolCalls && toolCount > 0) {
+      const fallbackMsg =
+        'The model returned no output. For web research, ensure you use a model that supports tool use (e.g. Llama 3.1 70B or Claude). Try a different model in Settings.';
+      const msg: TaskMessage = {
+        id: createMessageId(),
+        type: 'assistant',
+        content: fallbackMsg,
+        timestamp: new Date().toISOString(),
+      };
+      this.messages.push(msg);
+      this.emit('message', {
+        type: 'text',
+        part: {
+          id: msg.id,
+          sessionID: this.sessionId || '',
+          messageID: msg.id,
+          type: 'text',
+          text: fallbackMsg,
+        },
+      } as OpenCodeMessage);
     }
 
-    const lastStep = steps[steps.length - 1];
-    const finishReason = lastStep?.finishReason ?? 'stop';
+    const finishReason = lastFinishReason;
     const action = this.completionEnforcer.handleStepFinish(
       finishReason === 'stop' ? 'stop' : finishReason === 'tool-calls' ? 'tool_use' : 'end_turn',
     );
@@ -297,17 +437,19 @@ export class AgentAdapter extends EventEmitter<AgentAdapterEvents> {
     const { tools, clients } = await createMcpClientsAndTools(agentConfig.mcpServerSpecs);
     this.mcpClients = clients;
 
-    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-      { role: 'user', content: prompt },
-    ];
-
-    await this.runAgentLoop(prompt, agentConfig.systemPrompt, model, tools);
+    await this.runAgentLoop(prompt, agentConfig.systemPrompt, model, tools, agentConfig.provider);
   }
 
   private handleToolCall(toolName: string, toolInput: unknown): void {
     if (toolName === 'start_task' || toolName.endsWith('_start_task')) {
       this.startTaskCalled = true;
-      const input = toolInput as { needs_planning?: boolean; goal?: string; steps?: string[]; verification?: string[]; skills?: string[] };
+      const input = toolInput as {
+        needs_planning?: boolean;
+        goal?: string;
+        steps?: string[];
+        verification?: string[];
+        skills?: string[];
+      };
       if (input?.needs_planning && input?.goal && input?.steps) {
         this.completionEnforcer.markTaskRequiresCompletion();
         const todos: TodoItem[] = input.steps.map((step, i) => ({

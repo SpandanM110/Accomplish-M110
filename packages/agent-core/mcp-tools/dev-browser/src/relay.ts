@@ -338,7 +338,7 @@ export async function serveRelay(options: RelayOptions = {}): Promise<RelayServe
     try {
       const result = (await sendToExtension({
         method: 'forwardCDPCommand',
-        params: { method: 'Target.createTarget', params: { url: 'about:blank' } },
+        params: { method: 'Target.createTarget', params: { url: 'https://www.google.com' } },
       })) as { targetId: string };
 
       await new Promise((resolve) => setTimeout(resolve, 200));

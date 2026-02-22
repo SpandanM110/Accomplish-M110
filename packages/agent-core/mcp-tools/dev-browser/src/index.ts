@@ -49,12 +49,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   ]);
 }
 
+const LIGHTWEIGHT_CHROMIUM_ARGS = [
+  '--disable-dev-shm-usage',
+  '--disable-extensions',
+  '--no-first-run',
+  '--disable-background-networking',
+  '--disable-sync',
+];
+
 export async function serve(options: ServeOptions = {}): Promise<DevBrowserServer> {
   const port = options.port ?? parseInt(process.env.DEV_BROWSER_PORT || '9224', 10);
   const headless = options.headless ?? false;
   const cdpPort = options.cdpPort ?? parseInt(process.env.DEV_BROWSER_CDP_PORT || '9225', 10);
   const profileDir = options.profileDir ?? process.env.DEV_BROWSER_PROFILE;
-  const useSystemChrome = options.useSystemChrome ?? true;
+  const useSystemChrome =
+    options.useSystemChrome ?? process.env.DEV_BROWSER_USE_SYSTEM_CHROME === 'true';
 
   if (!Number.isFinite(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid port: ${port}. Must be a number between 1 and 65535`);
@@ -71,6 +80,12 @@ export async function serve(options: ServeOptions = {}): Promise<DevBrowserServe
   let context: BrowserContext;
   let usedSystemChrome = false;
 
+  const chromiumArgs = [
+    `--remote-debugging-port=${cdpPort}`,
+    '--disable-blink-features=AutomationControlled',
+    ...LIGHTWEIGHT_CHROMIUM_ARGS,
+  ];
+
   if (useSystemChrome) {
     try {
       console.log('Trying to use system Chrome...');
@@ -81,10 +96,7 @@ export async function serve(options: ServeOptions = {}): Promise<DevBrowserServe
         headless,
         channel: 'chrome',
         ignoreDefaultArgs: ['--enable-automation'],
-        args: [
-          `--remote-debugging-port=${cdpPort}`,
-          '--disable-blink-features=AutomationControlled',
-        ],
+        args: chromiumArgs,
       });
       usedSystemChrome = true;
       console.log('Using system Chrome (fast startup!)');
@@ -97,16 +109,30 @@ export async function serve(options: ServeOptions = {}): Promise<DevBrowserServe
     const playwrightUserDataDir = join(baseProfileDir, 'playwright-profile');
     mkdirSync(playwrightUserDataDir, { recursive: true });
 
-    console.log('Launching browser with Playwright Chromium...');
+    console.log('Launching Playwright Chromium (lighter, more control)...');
     context = await chromium.launchPersistentContext(playwrightUserDataDir, {
       headless,
       ignoreDefaultArgs: ['--enable-automation'],
-      args: [`--remote-debugging-port=${cdpPort}`, '--disable-blink-features=AutomationControlled'],
+      args: chromiumArgs,
     });
     console.log('Browser launched with Playwright Chromium');
   }
 
   console.log('Browser launched with persistent profile...');
+
+  // Navigate any default blank pages to Google immediately — user sees search-ready browser
+  await new Promise((r) => setTimeout(r, 500));
+  const defaultPages = context.pages();
+  for (const p of defaultPages) {
+    const url = p.url();
+    if (!url || url === 'about:blank' || url.startsWith('about:')) {
+      await p
+        .goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 })
+        .catch((err) => {
+          console.warn('[dev-browser] Initial Google nav failed:', (err as Error).message);
+        });
+    }
+  }
 
   context.on('close', () => {
     console.log('Browser context closed (user may have closed Chrome). Exiting server...');
@@ -172,6 +198,13 @@ export async function serve(options: ServeOptions = {}): Promise<DevBrowserServe
     let entry = registry.get(name);
     if (!entry) {
       const page = await withTimeout(context.newPage(), 30000, 'Page creation timed out after 30s');
+
+      // Start at Google so the LLM can search immediately — user prompt → steps → browser actions
+      await page
+        .goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 20000 })
+        .catch((err) => {
+          console.warn('[dev-browser] Page Google nav failed:', (err as Error).message);
+        });
 
       if (viewport) {
         await page.setViewportSize(viewport);

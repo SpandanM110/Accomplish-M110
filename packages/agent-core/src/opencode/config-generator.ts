@@ -6,8 +6,8 @@ import type { Skill } from '../common/types/skills.js';
 export const ACCOMPLISH_AGENT_NAME = 'accomplish';
 
 export interface BrowserConfig {
-  /** 'builtin' = dev-browser HTTP server (default), 'remote' = connect to CDP endpoint, 'none' = no browser */
-  mode: 'builtin' | 'remote' | 'none';
+  /** 'builtin' = dev-browser HTTP server, 'embedded' = Electron BrowserView (fast), 'remote' = connect to CDP endpoint, 'none' = no browser */
+  mode: 'builtin' | 'embedded' | 'remote' | 'none';
   /** For 'remote': the CDP endpoint URL */
   cdpEndpoint?: string;
   /** For 'remote': auth headers (e.g. { 'X-CDP-Secret': '...' }) */
@@ -25,7 +25,8 @@ export interface ConfigGeneratorOptions {
     baseUrl?: string;
   };
   apiKey?: string;
-  skills?: Skill[];
+  /** Skills with optional pre-loaded content. When content is provided, it's injected into the prompt. */
+  skills?: Array<Skill & { content?: string }>;
   bundledNodeBinPath?: string;
   bundledTsxPath?: string;
   isPackaged: boolean;
@@ -46,6 +47,8 @@ export interface ConfigGeneratorOptions {
     url: string;
     accessToken: string;
   }>;
+  /** Optional path to Hackathon Buddy MCP server (packages/hackathon-buddy) */
+  hackathonBuddyPath?: string;
 }
 
 export interface ProviderConfig {
@@ -288,6 +291,7 @@ function resolveBundledTsxCommand(mcpToolsPath: string, platform: NodeJS.Platfor
     path.join(mcpToolsPath, 'file-permission', 'node_modules', '.bin', tsxBin),
     path.join(mcpToolsPath, 'ask-user-question', 'node_modules', '.bin', tsxBin),
     path.join(mcpToolsPath, 'dev-browser-mcp', 'node_modules', '.bin', tsxBin),
+    path.join(mcpToolsPath, 'embedded-browser', 'node_modules', '.bin', tsxBin),
     path.join(mcpToolsPath, 'complete-task', 'node_modules', '.bin', tsxBin),
   ];
 
@@ -358,16 +362,17 @@ export function generateConfig(options: ConfigGeneratorOptions): GeneratedConfig
 ##############################################################################
 
 Review these skills and include any relevant ones in your start_task call's \`skills\` array.
-After calling start_task, you MUST read the SKILL.md file for each skill you listed.
+When the user's message starts with a command (e.g. /code-review, /web-research), you MUST use that skill.
 
-**Available Skills:**
+**Available Skills (full instructions below — use them directly):**
 
 ${skills
-  .map(
-    (s) => `- **${s.name}** (${s.command}): ${s.description}
-  File: ${s.filePath}`,
+  .map((s) =>
+    s.content
+      ? `\n---\n### ${s.name} (${s.command})\n${s.content}\n---`
+      : `- **${s.name}** (${s.command}): ${s.description}`,
   )
-  .join('\n\n')}
+  .join('\n')}
 
 Use empty array [] if no skills apply to your task.
 
@@ -448,40 +453,67 @@ Use empty array [] if no skills apply to your task.
     },
   };
 
-  // Conditionally register dev-browser-mcp based on browser config
-  const browserConfig = options.browser ?? { mode: 'builtin' };
+  // Conditionally register browser MCP: embedded = fast Electron BrowserView, builtin/remote = dev-browser
+  const browserConfig = options.browser ?? { mode: 'embedded' };
 
   if (browserConfig.mode !== 'none') {
-    const browserEnv: Record<string, string> = {};
-
-    if (browserConfig.mode === 'remote') {
-      if (browserConfig.cdpEndpoint) {
-        browserEnv.CDP_ENDPOINT = browserConfig.cdpEndpoint;
-      }
-      if (browserConfig.cdpHeaders) {
-        for (const [key, value] of Object.entries(browserConfig.cdpHeaders)) {
-          if (key === 'X-CDP-Secret') {
-            browserEnv.CDP_SECRET = value;
-          }
+    if (browserConfig.mode === 'embedded') {
+      mcpServers['embedded-browser'] = {
+        type: 'local',
+        command: resolveMcpCommand(
+          tsxCommand,
+          mcpToolsPath,
+          'embedded-browser',
+          'src/index.ts',
+          'dist/index.mjs',
+          isPackaged,
+          nodePath,
+        ),
+        enabled: true,
+        environment: { EMBEDDED_BROWSER_API_URL: 'http://127.0.0.1:9230' },
+        timeout: 30000,
+      };
+    } else {
+      const browserEnv: Record<string, string> = {};
+      if (browserConfig.mode === 'remote') {
+        if (browserConfig.cdpEndpoint) browserEnv.CDP_ENDPOINT = browserConfig.cdpEndpoint;
+        if (browserConfig.cdpHeaders?.['X-CDP-Secret']) {
+          browserEnv.CDP_SECRET = browserConfig.cdpHeaders['X-CDP-Secret'];
         }
       }
+      mcpServers['dev-browser-mcp'] = {
+        type: 'local',
+        command: resolveMcpCommand(
+          tsxCommand,
+          mcpToolsPath,
+          'dev-browser-mcp',
+          'src/index.ts',
+          'dist/index.mjs',
+          isPackaged,
+          nodePath,
+        ),
+        enabled: true,
+        ...(Object.keys(browserEnv).length > 0 && { environment: browserEnv }),
+        timeout: 30000,
+      };
     }
+  }
 
-    mcpServers['dev-browser-mcp'] = {
+  // Add Hackathon Buddy MCP when path is provided
+  const hackathonBuddyPath = options.hackathonBuddyPath;
+  if (hackathonBuddyPath && fs.existsSync(hackathonBuddyPath)) {
+    const srcPath = path.join(hackathonBuddyPath, 'src', 'index.ts');
+    const distPath = path.join(hackathonBuddyPath, 'dist', 'index.js');
+    const useDist = (isPackaged || !fs.existsSync(srcPath)) && fs.existsSync(distPath);
+    const entryPath = useDist ? distPath : srcPath;
+    const cmd = useDist ? [nodePath || 'node', entryPath] : [...tsxCommand, entryPath];
+    mcpServers['hackathon-buddy'] = {
       type: 'local',
-      command: resolveMcpCommand(
-        tsxCommand,
-        mcpToolsPath,
-        'dev-browser-mcp',
-        'src/index.ts',
-        'dist/index.mjs',
-        isPackaged,
-        nodePath,
-      ),
+      command: cmd,
       enabled: true,
-      ...(Object.keys(browserEnv).length > 0 && { environment: browserEnv }),
-      timeout: 30000,
+      timeout: 60000,
     };
+    console.log('[OpenCode Config] Hackathon Buddy MCP enabled:', entryPath);
   }
 
   // Add connected MCP connectors as remote servers
@@ -547,8 +579,14 @@ CONVERSATIONAL MODE - short user message (greeting, quick question).
       '{{BROWSER_BEHAVIOR}}',
       hasBrowser
         ? `- **NEVER use shell commands (open, xdg-open, start, subprocess, webbrowser) to open browsers or URLs** - these open the user's default browser, not the automation-controlled Chrome. ALL browser operations MUST use browser_* MCP tools.
-- For multi-step browser workflows, prefer \`browser_script\` over individual tools - it's faster and auto-returns page state.
+${
+  browserConfig.mode === 'embedded'
+    ? `- Use browser_navigate, browser_snapshot, browser_click, browser_type, browser_scroll. Navigate first, then snapshot to read the page, then click/type as needed.
+`
+    : `- For multi-step browser workflows, prefer \`browser_script\` over individual tools - it's faster and auto-returns page state.
 - **For collecting data from multiple pages** (e.g. comparing listings, gathering info from search results), use \`browser_batch_actions\` to extract data from multiple URLs in ONE call instead of visiting each page individually with click/snapshot loops. First collect the URLs from the search results page, then pass them all to \`browser_batch_actions\` with a JS extraction script.
+`
+}
 
 **BROWSER ACTION VERBOSITY - Be descriptive about web interactions:**
 - Before each browser action, briefly explain what you're about to do in user terms
@@ -565,7 +603,7 @@ Example bad narration (too terse):
 "Done." or "Navigated." or "Clicked."
 
 - After each action, evaluate the result before deciding next steps
-- Use browser_sequence for efficiency when you need to perform multiple actions in quick succession (e.g., filling a form with multiple fields)
+${browserConfig.mode !== 'embedded' ? '- Use browser_sequence for efficiency when you need to perform multiple actions in quick succession (e.g., filling a form with multiple fields)\n' : ''}
 `
         : '',
     );
@@ -614,9 +652,7 @@ Example bad narration (too terse):
         mode: 'primary',
       },
     },
-    mcp: isConversationalMode
-      ? { 'start-task': mcpServers['start-task'] }
-      : mcpServers,
+    mcp: isConversationalMode ? { 'start-task': mcpServers['start-task'] } : mcpServers,
     experimental: {
       mcp_timeout: 600000, // 10 minutes — allow long-running MCP tools like AskUserQuestion
     },

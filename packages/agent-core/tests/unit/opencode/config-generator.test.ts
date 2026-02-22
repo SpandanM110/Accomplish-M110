@@ -150,7 +150,7 @@ describe('ConfigGenerator', () => {
 
       expect(result.mcpServers['file-permission']).toBeDefined();
       expect(result.mcpServers['ask-user-question']).toBeDefined();
-      expect(result.mcpServers['dev-browser-mcp']).toBeDefined();
+      expect(result.mcpServers['embedded-browser']).toBeDefined();
       expect(result.mcpServers['complete-task']).toBeDefined();
       expect(result.mcpServers['start-task']).toBeDefined();
     });
@@ -216,7 +216,7 @@ describe('ConfigGenerator', () => {
 
       // Check for the skills section header and content
       expect(result.systemPrompt).toContain('# SKILLS - Include relevant');
-      expect(result.systemPrompt).toContain('**Available Skills:**');
+      expect(result.systemPrompt).toContain('**Available Skills');
       expect(result.systemPrompt).toContain('Test Skill');
       expect(result.systemPrompt).toContain('/test');
       expect(result.systemPrompt).toContain('A test skill');
@@ -236,7 +236,7 @@ describe('ConfigGenerator', () => {
       // but the actual skills section starts with "# SKILLS - Include relevant"
       // and ends with the closing tag. Check for the section header instead.
       expect(result.systemPrompt).not.toContain('# SKILLS - Include relevant');
-      expect(result.systemPrompt).not.toContain('**Available Skills:**');
+      expect(result.systemPrompt).not.toContain('**Available Skills');
     });
 
     it('should include bundled node bin path in environment', () => {
@@ -396,7 +396,7 @@ describe('ConfigGenerator', () => {
       // Should use node + dist path instead of tsx + src
       const command = result.mcpServers['file-permission'].command;
       expect(command?.[0]).toContain('node');
-      expect(command?.[1]).toContain('dist/index.mjs');
+      expect(command?.[1]).toMatch(/dist[\\/]index\.mjs/);
     });
 
     it('should use tsx for MCP entry when not packaged', () => {
@@ -542,11 +542,14 @@ describe('ConfigGenerator', () => {
       };
     }
 
-    it('should register dev-browser-mcp by default (builtin mode)', () => {
+    it('should register embedded-browser by default (embedded mode)', () => {
       const result = generateConfig(makeOptions());
 
-      expect(result.mcpServers['dev-browser-mcp']).toBeDefined();
-      expect(result.mcpServers['dev-browser-mcp'].enabled).toBe(true);
+      expect(result.mcpServers['embedded-browser']).toBeDefined();
+      expect(result.mcpServers['embedded-browser'].enabled).toBe(true);
+      expect(result.mcpServers['embedded-browser'].environment?.EMBEDDED_BROWSER_API_URL).toBe(
+        'http://127.0.0.1:9230',
+      );
     });
 
     it('should register dev-browser-mcp when browser mode is builtin', () => {
@@ -624,6 +627,22 @@ describe('ConfigGenerator', () => {
       const result = generateConfig(makeOptions({ browser }));
 
       expect(result.systemPrompt).toContain('browser automation assistant');
+    });
+
+    it('should register embedded-browser when browser mode is embedded', () => {
+      const result = generateConfig(makeOptions({ browser: { mode: 'embedded' } }));
+
+      expect(result.mcpServers['embedded-browser']).toBeDefined();
+      expect(result.mcpServers['embedded-browser'].enabled).toBe(true);
+      expect(result.mcpServers['dev-browser-mcp']).toBeUndefined();
+    });
+
+    it('should use embedded-specific prompt (no browser_sequence) when mode is embedded', () => {
+      const result = generateConfig(makeOptions({ browser: { mode: 'embedded' } }));
+
+      expect(result.systemPrompt).toContain('browser_navigate');
+      expect(result.systemPrompt).toContain('browser_snapshot');
+      expect(result.systemPrompt).not.toContain('browser_sequence');
     });
   });
 

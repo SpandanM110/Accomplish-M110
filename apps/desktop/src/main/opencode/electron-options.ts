@@ -7,7 +7,6 @@ import type { TaskConfig } from '@accomplish_ai/agent-core';
 import { DEV_BROWSER_PORT } from '@accomplish_ai/agent-core';
 import {
   getAzureEntraToken,
-  ensureDevBrowserServer,
   resolveCliPath,
   isCliAvailable as coreIsCliAvailable,
   buildCliArgs as coreBuildCliArgs,
@@ -16,6 +15,7 @@ import {
   type CliResolverConfig,
   type EnvironmentConfig,
 } from '@accomplish_ai/agent-core';
+import { startEmbeddedBrowserApi } from '../embedded-browser-api';
 import { getModelDisplayName } from '@accomplish_ai/agent-core';
 import type {
   AzureFoundryCredentials,
@@ -272,9 +272,6 @@ async function prepareConfig(): Promise<void> {
   }
 
   await generateOpenCodeConfig(azureFoundryToken, currentTaskBrowserOverride);
-  const useBrowser = currentTaskBrowserOverride?.mode !== 'none';
-  const browserConfig = getBrowserServerConfig();
-
 }
 
 export async function onBeforeStart(): Promise<void> {
@@ -286,7 +283,7 @@ export async function onBeforeStart(): Promise<void> {
   await Promise.all([configPromise, browserPromise]);
 }
 
-function getBrowserServerConfig(): BrowserServerConfig {
+function _getBrowserServerConfig(): BrowserServerConfig {
   const bundledPaths = getBundledNodePaths();
   return {
     mcpToolsPath: getMcpToolsPath(),
@@ -297,9 +294,30 @@ function getBrowserServerConfig(): BrowserServerConfig {
 
 /** Keywords that suggest the user wants browser/web automation */
 const BROWSER_KEYWORDS = [
-  'search', 'google', 'browse', 'open', 'navigate', 'website', 'web', 'url', 'link',
-  'fill form', 'click', 'scrape', 'screenshot', 'page', 'browser', 'chrome', 'firefox',
-  'look up', 'find on', 'check ', 'visit', 'go to', 'fetch', 'scraping',
+  'search',
+  'google',
+  'browse',
+  'open',
+  'navigate',
+  'website',
+  'web',
+  'url',
+  'link',
+  'fill form',
+  'click',
+  'scrape',
+  'screenshot',
+  'page',
+  'browser',
+  'chrome',
+  'firefox',
+  'look up',
+  'find on',
+  'check ',
+  'visit',
+  'go to',
+  'fetch',
+  'scraping',
 ];
 
 /**
@@ -324,12 +342,38 @@ export function isSimpleConversationalPrompt(prompt: string): boolean {
 
   // Greetings and simple phrases (any length)
   const simplePhrases = [
-    'hi', 'hello', 'hey', 'hiya', 'yo', 'sup', 'howdy', 'hola', 'greetings',
-    'thanks', 'thank you', 'thx', 'ty', 'ok', 'okay', 'yes', 'no', 'yep', 'nope',
-    'help', 'what can you do', 'who are you', 'what are you', 'how are you',
-    'good morning', 'good afternoon', 'good evening', 'good night',
+    'hi',
+    'hello',
+    'hey',
+    'hiya',
+    'yo',
+    'sup',
+    'howdy',
+    'hola',
+    'greetings',
+    'thanks',
+    'thank you',
+    'thx',
+    'ty',
+    'ok',
+    'okay',
+    'yes',
+    'no',
+    'yep',
+    'nope',
+    'help',
+    'what can you do',
+    'who are you',
+    'what are you',
+    'how are you',
+    'good morning',
+    'good afternoon',
+    'good evening',
+    'good night',
   ];
-  if (simplePhrases.some((s) => lower === s || lower.startsWith(s + ' ') || lower.startsWith(s + '!'))) {
+  if (
+    simplePhrases.some((s) => lower === s || lower.startsWith(s + ' ') || lower.startsWith(s + '!'))
+  ) {
     return true;
   }
 
@@ -345,18 +389,21 @@ export async function onBeforeTaskStart(
 ): Promise<void> {
   const prompt = config?.prompt?.trim() ?? '';
   const useBrowser = prompt.length > 0 && !isSimpleConversationalPrompt(prompt);
-  currentTaskBrowserOverride = useBrowser ? { mode: 'builtin' } : { mode: 'none' };
+  currentTaskBrowserOverride = useBrowser ? { mode: 'embedded' } : { mode: 'none' };
 
   if (useBrowser) {
     if (isFirstTask) {
       callbacks.onProgress({ stage: 'browser', message: 'Preparing browser...', isFirstTask });
     }
-    const browserConfig = getBrowserServerConfig();
-    pendingBrowserPromise = ensureDevBrowserServer(browserConfig, callbacks.onProgress);
+    // Use embedded Electron BrowserView (fast, no Playwright) instead of dev-browser server
+    pendingBrowserPromise = Promise.resolve().then(() => {
+      startEmbeddedBrowserApi();
+      return { ready: true, logs: [] as string[] };
+    });
   } else {
     console.log('[Main] Simple conversational prompt, skipping browser startup');
 
-  // Config will be regenerated in onBeforeStart (called by adapter.startTask) with currentTaskBrowserOverride
+    // Config will be regenerated in onBeforeStart (called by adapter.startTask) with currentTaskBrowserOverride
     pendingBrowserPromise = null;
   }
 }

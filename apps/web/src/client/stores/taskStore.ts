@@ -430,9 +430,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         return state;
       }
 
+      let newMessages = state.currentTask.messages;
+      for (const msg of event.messages) {
+        const last = newMessages[newMessages.length - 1];
+        if (last?.id === msg.id && last?.type === 'assistant' && msg.type === 'assistant') {
+          newMessages = [...newMessages.slice(0, -1), msg];
+        } else {
+          newMessages = [...newMessages, msg];
+        }
+      }
+
       const updatedTask = {
         ...state.currentTask,
-        messages: [...state.currentTask.messages, ...event.messages],
+        messages: newMessages,
       };
 
       return { currentTask: updatedTask, isLoading: false };

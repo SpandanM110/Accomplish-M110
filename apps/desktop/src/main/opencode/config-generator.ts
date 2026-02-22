@@ -115,6 +115,14 @@ export async function generateOpenCodeConfig(
 
   const enabledSkills = await skillsManager.getEnabled();
 
+  // Pre-load skill content so the agent has full instructions (no file read needed)
+  const skillsWithContent = await Promise.all(
+    enabledSkills.map(async (skill) => {
+      const content = await skillsManager.getContent(skill.id);
+      return { ...skill, content: content ?? undefined };
+    }),
+  );
+
   // Fetch enabled connectors with valid tokens
   const storage = getStorage();
   const enabledConnectors = storage.getEnabledConnectors();
@@ -163,13 +171,15 @@ export async function generateOpenCodeConfig(
     });
   }
 
+  const hackathonBuddyPath = path.join(app.getAppPath(), '..', '..', 'packages', 'hackathon-buddy');
+
   const result = generateConfig({
     platform: process.platform,
     mcpToolsPath,
     userDataPath,
     isPackaged: app.isPackaged,
     bundledNodeBinPath,
-    skills: enabledSkills,
+    skills: skillsWithContent,
     providerConfigs,
     permissionApiPort: PERMISSION_API_PORT,
     questionApiPort: QUESTION_API_PORT,
@@ -178,6 +188,7 @@ export async function generateOpenCodeConfig(
     smallModel: modelOverride?.smallModel,
     connectors: connectors.length > 0 ? connectors : undefined,
     browser: browserOverride,
+    hackathonBuddyPath: hackathonBuddyPath,
   });
 
   process.env.OPENCODE_CONFIG = result.configPath;
@@ -223,7 +234,7 @@ export async function getAgentConfigForTask(
   const apiKey =
     selectedModel.provider === 'ollama' || selectedModel.provider === 'lmstudio'
       ? undefined
-      : getApiKey(selectedModel.provider) ?? undefined;
+      : (getApiKey(selectedModel.provider) ?? undefined);
 
   return toAgentConfig({
     generatedConfig: lastGeneratedConfig,
@@ -257,6 +268,8 @@ export function prewarmOpenCodeConfig(): void {
     syncApiKeysToOpenCodeAuth()
       .then(() => generateOpenCodeConfig(undefined, { mode: 'builtin' }))
       .then(() => console.log('[OpenCode Config] Pre-warmed config for faster first task'))
-      .catch((err) => console.warn('[OpenCode Config] Pre-warm failed (will generate on first task):', err));
+      .catch((err) =>
+        console.warn('[OpenCode Config] Pre-warm failed (will generate on first task):', err),
+      );
   }, 2000);
 }

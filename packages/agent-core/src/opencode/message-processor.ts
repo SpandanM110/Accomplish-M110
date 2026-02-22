@@ -188,7 +188,7 @@ export function toTaskMessage(message: OpenCodeMessage): TaskMessage | null {
     const sanitized = sanitizeAssistantTextForDisplay(message.part.text || '');
     if (sanitized) {
       return {
-        id: createMessageId(),
+        id: message.part.id ?? createMessageId(),
         type: 'assistant',
         content: sanitized,
         timestamp: new Date().toISOString(),
@@ -312,7 +312,13 @@ export function queueMessage(
     batcher = createMessageBatcher(taskId, forwardToRenderer, addTaskMessage);
   }
 
-  batcher.pendingMessages.push(message);
+  // Replace last message if same id (streaming update) to avoid duplicate entries
+  const last = batcher.pendingMessages[batcher.pendingMessages.length - 1];
+  if (last?.id === message.id && last?.type === 'assistant' && message.type === 'assistant') {
+    batcher.pendingMessages[batcher.pendingMessages.length - 1] = message;
+  } else {
+    batcher.pendingMessages.push(message);
+  }
 
   if (batcher.timeout) {
     clearTimeout(batcher.timeout);

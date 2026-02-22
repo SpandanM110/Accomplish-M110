@@ -29,7 +29,8 @@
     "format:check": "prettier --check .",
     "clean": "pnpm -r clean && node -e \"require('fs').rmSync('node_modules',{recursive:true,force:true})\"",
     "prepare": "husky",
-    "test:ollama": "node scripts/test-ollama.mjs"
+    "test:ollama": "node scripts/test-ollama.mjs",
+    "install:dev-browser": "pnpm -C packages/agent-core/mcp-tools/dev-browser run install-browser"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

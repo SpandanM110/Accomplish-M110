@@ -113,6 +113,7 @@ if (!useBundledMcp) {
   const tools = [
     'dev-browser',
     'dev-browser-mcp',
+    'embedded-browser',
     'file-permission',
     'ask-user-question',
     'complete-task',

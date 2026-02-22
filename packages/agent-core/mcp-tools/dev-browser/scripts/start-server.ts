@@ -178,7 +178,7 @@ async function startServer(retry = false): Promise<void> {
       cdpPort: ACCOMPLISH_CDP_PORT,
       headless,
       profileDir,
-      useSystemChrome: true,
+      useSystemChrome: process.env.DEV_BROWSER_USE_SYSTEM_CHROME === 'true',
     });
 
     console.log(`Dev browser server started`);

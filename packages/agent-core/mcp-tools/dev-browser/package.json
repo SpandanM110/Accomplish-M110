@@ -9,6 +9,7 @@
     "start-server": "npx tsx scripts/start-server.ts",
     "start-extension": "npx tsx scripts/start-relay.ts",
     "dev": "npx tsx --watch src/index.ts",
+    "install-browser": "playwright install chromium",
     "test": "vitest run",
     "test:watch": "vitest"
   },
