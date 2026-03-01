@@ -24,7 +24,7 @@
   "waitingForResponse": "Waiting for response...",
   "connectingToModel": "Connecting to {{modelName}}...",
   "coldStartHint": "First task takes a bit longer...",
-  "agentWorking": "Agent is working...",
+  "agentWorking": "Agent is working — you can stop anytime",
   "stopAgent": "Stop agent (Ctrl+C)",
   "followUp": {
     "interruptedPlaceholder": "Give new instructions...",
@@ -36,6 +36,7 @@
   "processing": "Processing",
   "system": "System",
   "copyToClipboard": "Copy to clipboard",
+  "exportConversation": "Export conversation",
   "permission": {
     "title": "Permission Required",
     "fileTitle": "File Permission Required",

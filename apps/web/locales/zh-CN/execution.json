@@ -21,7 +21,7 @@
     "accomplishing": "完成中..."
   },
   "coldStartHint": "首次任务需要更长时间...",
-  "agentWorking": "智能体工作中...",
+  "agentWorking": "智能体工作中 — 可随时停止",
   "stopAgent": "停止智能体 (Ctrl+C)",
   "followUp": {
     "interruptedPlaceholder": "输入新指令...",
@@ -94,5 +94,6 @@
     "title": "任务",
     "progress": "{{completed}} / {{total}}"
   },
-  "copyToClipboard": "复制到剪贴板"
+  "copyToClipboard": "复制到剪贴板",
+  "exportConversation": "导出对话"
 }

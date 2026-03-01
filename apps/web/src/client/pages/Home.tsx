@@ -292,6 +292,14 @@ export function HomePage() {
               </div>
             </Card>
           </motion.div>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ ...springs.gentle, delay: 0.2 }}
+            className="text-xs text-muted-foreground"
+          >
+            {t('keyboardShortcut')}
+          </motion.p>
         </div>
       </div>
     </>

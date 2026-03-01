@@ -19,6 +19,7 @@ import {
   Square,
   Download,
   ChevronDown,
+  FileDown,
 } from 'lucide-react';
 import { isWaitingForUser } from '../lib/waiting-detection';
 import { SettingsDialog } from '../components/layout/SettingsDialog';
@@ -27,7 +28,7 @@ import { ModelIndicator } from '../components/ui/ModelIndicator';
 import { useSpeechInput } from '../hooks/useSpeechInput';
 import { SpeechInputButton } from '../components/ui/SpeechInputButton';
 import { PlusMenu } from '../components/landing/PlusMenu';
-import { SpinningIcon } from '../components/execution/SpinningIcon';
+
 import { MessageBubble } from '../components/execution/MessageList';
 import { ToolProgress } from '../components/execution/ToolProgress';
 import { PermissionDialog } from '../components/execution/PermissionDialog';
@@ -77,6 +78,7 @@ export function ExecutionPage() {
     permissionRequest,
     respondToPermission,
     sendFollowUp,
+    startTask,
     interruptTask,
     setupProgress,
     setupProgressTaskId,
@@ -340,8 +342,39 @@ export function ExecutionPage() {
 
   if (!currentTask) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <SpinningIcon className="h-8 w-8" />
+      <div className="h-full flex flex-col">
+        <div className="flex-shrink-0 border-b border-border bg-card/50 px-6 py-4">
+          <div className="max-w-4xl mx-auto flex items-center gap-4">
+            <div className="h-9 w-9 rounded-lg bg-muted animate-pulse" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+              <div className="h-6 w-20 bg-muted rounded-full animate-pulse" />
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="ml-0 flex justify-start">
+              <div className="max-w-[85%] rounded-xl rounded-tl-sm border border-border bg-card p-4 space-y-2">
+                <div className="h-3 w-full bg-muted rounded animate-pulse" />
+                <div className="h-3 w-[80%] bg-muted rounded animate-pulse" />
+                <div className="h-3 w-2/3 bg-muted rounded animate-pulse" />
+              </div>
+            </div>
+            <div className="mr-0 flex justify-end">
+              <div className="max-w-[85%] rounded-xl rounded-tr-sm bg-primary/10 p-4 space-y-2">
+                <div className="h-3 w-32 bg-muted/50 rounded animate-pulse ml-auto" />
+                <div className="h-3 w-24 bg-muted/50 rounded animate-pulse ml-auto" />
+              </div>
+            </div>
+            <div className="ml-0 flex justify-start">
+              <div className="max-w-[85%] rounded-xl rounded-tl-sm border border-border bg-card p-4 space-y-2">
+                <div className="h-3 w-full bg-muted rounded animate-pulse" />
+                <div className="h-3 w-3/4 bg-muted rounded animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -429,6 +462,32 @@ export function ExecutionPage() {
                 <span data-testid="execution-status-badge">{getStatusBadge()}</span>
               </div>
             </div>
+            {currentTask.messages.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  const lines = currentTask.messages.map((m) => {
+                    const role =
+                      m.type === 'user' ? 'You' : m.type === 'assistant' ? 'Assistant' : m.type;
+                    return `## ${role}\n\n${m.content || ''}`;
+                  });
+                  const markdown = `# ${currentTask.prompt}\n\n${lines.join('\n\n---\n\n')}`;
+                  const blob = new Blob([markdown], { type: 'text/markdown' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `accomplish-${currentTask.id.slice(0, 12)}.md`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                title={t('exportConversation')}
+              >
+                <FileDown className="h-4 w-4 mr-1" />
+                {t('exportConversation')}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -807,7 +866,22 @@ export function ExecutionPage() {
                     : currentTask.status,
               })}
             </p>
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              {currentTask.status === 'failed' && currentTask.prompt && (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const task = await startTask({
+                      prompt: currentTask.prompt,
+                      taskId: `task_${Date.now()}`,
+                    });
+                    if (task) navigate(`/execution/${task.id}`);
+                  }}
+                  disabled={isLoading}
+                >
+                  {tCommon('buttons.retry')}
+                </Button>
+              )}
               <Button onClick={() => navigate('/')}>{tCommon('buttons.startNewTask')}</Button>
             </div>
           </div>

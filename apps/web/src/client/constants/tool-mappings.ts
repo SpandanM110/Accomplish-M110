@@ -77,6 +77,13 @@ export const TOOL_PROGRESS_MAP: Record<string, { label: string; icon: typeof Fil
   report_thought: { label: 'Thinking', icon: Lightbulb },
   report_checkpoint: { label: 'Checkpoint', icon: Flag },
   start_task: { label: 'Starting Task', icon: Play },
+  // Hackathon Buddy
+  hb_scout_search_hackathons: { label: 'Searching hackathons', icon: Search },
+  hb_scout_get_hackathon_details: { label: 'Getting hackathon details', icon: FileText },
+  hb_scout_get_winning_projects: { label: 'Fetching winning projects', icon: ListOrdered },
+  hb_validator_validate_idea: { label: 'Validating idea', icon: Lightbulb },
+  hb_planner_generate_ticket_board: { label: 'Generating ticket board', icon: ListChecks },
+  hb_pitch_build_judge_dossier: { label: 'Building judge dossiers', icon: FileText },
 };
 
 export function getBaseToolName(toolName: string): string {

@@ -48,7 +48,7 @@ export async function execute(args: Record<string, unknown>): Promise<string> {
       const header = `## Hackathons (${result.total_count} total)`;
       const hint =
         result.total_count === 0
-          ? '\n\n*Tip: Set EXA_API_KEY in .env for Exa search. Also try BRAVE_API_KEY or SERPER_API_KEY.*'
+          ? '\n\n**No hackathons found.** Try broadening your search or check:\n\n- **EXA_API_KEY** in `apps/desktop/.env` for Exa search (recommended)\n- **BRAVE_API_KEY** or **SERPER_API_KEY** as alternatives\n- Ensure your API key is valid and has not expired'
           : '';
       return [
         header,

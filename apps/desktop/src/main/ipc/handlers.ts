@@ -301,6 +301,12 @@ export function registerIPCHandlers(): void {
 
     // Merge adapter messages (e.g. direct bypass hackathon results) with user message
     task.messages = [initialUserMessage, ...(task.messages || [])];
+    // Direct bypass completes synchronously — return status 'completed' so UI doesn't stay on "Doing..."
+    if (task.messages.length > 1) {
+      task.status = 'completed';
+      task.completedAt = new Date().toISOString();
+      task.result = { status: 'success', sessionId: task.sessionId };
+    }
     storage.saveTask(task);
 
     const summarizerOllama =

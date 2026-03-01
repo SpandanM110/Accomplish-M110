@@ -11,6 +11,7 @@
     "manage": "Manage"
   },
   "examplePrompts": "Example prompts",
+  "keyboardShortcut": "Press Ctrl+K (⌘K on Mac) to open task launcher",
   "useCases": {
     "calendarPrepNotes": {
       "title": "Calendar Prep Notes",

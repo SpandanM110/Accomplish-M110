@@ -11,6 +11,7 @@
     "manage": "管理"
   },
   "examplePrompts": "示例任务",
+  "keyboardShortcut": "按 Ctrl+K（Mac 上为 ⌘K）打开任务启动器",
   "useCases": {
     "calendarPrepNotes": {
       "title": "会议准备笔记",
